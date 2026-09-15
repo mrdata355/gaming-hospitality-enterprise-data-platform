@@ -11,6 +11,7 @@ REQUIRED = [
     "ssis/continuous_handoff/CDC_To_EventBus_Continuous_Handoff.dtsx.xml",
     "db2/sql/hotel_reservation_incremental.sql",
     "adf/factory/pipeline/pl_hotel_db2_to_cloud.json",
+    "adf/production_reference/pl_streaming_health_replay_orchestrator.json",
     "gcp/terraform/main.tf",
     "gcp/pubsub/production_reference.py",
     "gcp/dataflow/continuous_streaming_pipeline.py",
