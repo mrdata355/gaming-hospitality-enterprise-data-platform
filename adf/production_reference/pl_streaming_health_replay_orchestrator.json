@@ -1,0 +1,205 @@
+{
+  "name": "pl_streaming_health_replay_orchestrator",
+  "properties": {
+    "description": "Synthetic ADF control-plane pipeline. ADF coordinates health checks, replay approval, bounded backfill and reconciliation; it is not the continuous streaming engine.",
+    "parameters": {
+      "domain": {
+        "type": "string",
+        "defaultValue": "hotel-reservations"
+      },
+      "streamingPlatform": {
+        "type": "string",
+        "defaultValue": "GCP_DATAFLOW"
+      },
+      "replayStartUtc": {
+        "type": "string"
+      },
+      "replayEndUtc": {
+        "type": "string"
+      },
+      "replayReason": {
+        "type": "string",
+        "defaultValue": "operator_requested_reconciliation"
+      },
+      "dryRun": {
+        "type": "bool",
+        "defaultValue": true
+      }
+    },
+    "variables": {
+      "healthStatus": {
+        "type": "String"
+      },
+      "sourceCount": {
+        "type": "String"
+      },
+      "targetCount": {
+        "type": "String"
+      },
+      "replayRequestId": {
+        "type": "String"
+      }
+    },
+    "activities": [
+      {
+        "name": "ReadCurrentStreamHealth",
+        "type": "WebActivity",
+        "dependsOn": [],
+        "typeProperties": {
+          "method": "GET",
+          "url": "@concat(pipeline().globalParameters.streamControlBaseUrl, '/v1/streams/', pipeline().parameters.domain, '/health')",
+          "authentication": {
+            "type": "MSI",
+            "resource": "@pipeline().globalParameters.streamControlAudience"
+          }
+        }
+      },
+      {
+        "name": "CaptureHealthStatus",
+        "type": "SetVariable",
+        "dependsOn": [
+          {
+            "activity": "ReadCurrentStreamHealth",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "variableName": "healthStatus",
+          "value": "@string(activity('ReadCurrentStreamHealth').output.status)"
+        }
+      },
+      {
+        "name": "ValidateReplayWindow",
+        "type": "IfCondition",
+        "dependsOn": [
+          {
+            "activity": "CaptureHealthStatus",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "expression": {
+            "type": "Expression",
+            "value": "@and(not(empty(pipeline().parameters.replayStartUtc)), not(empty(pipeline().parameters.replayEndUtc)))"
+          },
+          "ifTrueActivities": [
+            {
+              "name": "CreateReplayRequest",
+              "type": "WebActivity",
+              "typeProperties": {
+                "method": "POST",
+                "url": "@concat(pipeline().globalParameters.streamControlBaseUrl, '/v1/replay/requests')",
+                "headers": {
+                  "Content-Type": "application/json"
+                },
+                "body": {
+                  "domain": "@{pipeline().parameters.domain}",
+                  "platform": "@{pipeline().parameters.streamingPlatform}",
+                  "startUtc": "@{pipeline().parameters.replayStartUtc}",
+                  "endUtc": "@{pipeline().parameters.replayEndUtc}",
+                  "reason": "@{pipeline().parameters.replayReason}",
+                  "dryRun": "@{pipeline().parameters.dryRun}"
+                },
+                "authentication": {
+                  "type": "MSI",
+                  "resource": "@pipeline().globalParameters.streamControlAudience"
+                }
+              }
+            }
+          ],
+          "ifFalseActivities": [
+            {
+              "name": "FailInvalidReplayWindow",
+              "type": "Fail",
+              "typeProperties": {
+                "message": "Replay requires explicit UTC start and end boundaries.",
+                "errorCode": "INVALID_REPLAY_WINDOW"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "name": "RunBoundedReplay",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "ValidateReplayWindow",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@concat(pipeline().globalParameters.streamControlBaseUrl, '/v1/replay/execute')",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "domain": "@{pipeline().parameters.domain}",
+            "startUtc": "@{pipeline().parameters.replayStartUtc}",
+            "endUtc": "@{pipeline().parameters.replayEndUtc}",
+            "preserveLiveCheckpoint": true,
+            "writeMode": "IDEMPOTENT_MERGE",
+            "dryRun": "@{pipeline().parameters.dryRun}"
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "@pipeline().globalParameters.streamControlAudience"
+          }
+        }
+      },
+      {
+        "name": "ReconcileReplay",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "RunBoundedReplay",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@concat(pipeline().globalParameters.streamControlBaseUrl, '/v1/reconciliation/stream-replay')",
+          "headers": {
+            "Content-Type": "application/json"
+          },
+          "body": {
+            "domain": "@{pipeline().parameters.domain}",
+            "startUtc": "@{pipeline().parameters.replayStartUtc}",
+            "endUtc": "@{pipeline().parameters.replayEndUtc}",
+            "equation": "source=applied+duplicate+stale+quarantine"
+          },
+          "authentication": {
+            "type": "MSI",
+            "resource": "@pipeline().globalParameters.streamControlAudience"
+          }
+        }
+      },
+      {
+        "name": "VerifyPostReplayHealth",
+        "type": "WebActivity",
+        "dependsOn": [
+          {
+            "activity": "ReconcileReplay",
+            "dependencyConditions": ["Succeeded"]
+          }
+        ],
+        "typeProperties": {
+          "method": "GET",
+          "url": "@concat(pipeline().globalParameters.streamControlBaseUrl, '/v1/streams/', pipeline().parameters.domain, '/health')",
+          "authentication": {
+            "type": "MSI",
+            "resource": "@pipeline().globalParameters.streamControlAudience"
+          }
+        }
+      }
+    ],
+    "annotations": [
+      "ContinuousStreaming",
+      "Replay",
+      "Reconciliation",
+      "ADFControlPlane",
+      "SyntheticPortfolio"
+    ]
+  }
+}
