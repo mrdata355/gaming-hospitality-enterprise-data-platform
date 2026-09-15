@@ -1,0 +1,15 @@
+version: 2
+sources:
+  - name: silver
+    database: "{{ env_var('GCP_PROJECT_ID', 'gaming-hospitality-dev') }}"
+    schema: silver
+    tables:
+      - name: hotel_reservation_current
+        loaded_at_field: source_updated_at
+        freshness: {warn_after: {count: 30, period: minute}, error_after: {count: 2, period: hour}}
+      - name: gaming_event_fact
+        loaded_at_field: first_processed_at
+        freshness: {warn_after: {count: 10, period: minute}, error_after: {count: 30, period: minute}}
+      - name: reward_activity
+        loaded_at_field: processed_at
+        freshness: {warn_after: {count: 30, period: minute}, error_after: {count: 2, period: hour}}

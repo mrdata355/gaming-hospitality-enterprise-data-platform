@@ -1,0 +1,23 @@
+version: 1
+slos:
+  - name: gaming_event_freshness
+    objective: 0.995
+    window: 30d
+    sli: "events available in silver within 120 seconds of event receipt"
+    alert_burn_rates: [14.4, 6, 3]
+  - name: hotel_batch_completion
+    objective: 0.999
+    window: 30d
+    sli: "hotel incremental batches finish before business deadline"
+  - name: reconciliation_balanced
+    objective: 1.0
+    window: 30d
+    sli: "completed financial/revenue pipelines contain zero unexplained variance"
+  - name: pubsub_delivery
+    objective: 0.9999
+    window: 30d
+    sli: "messages process successfully before dead-letter exhaustion"
+  - name: data_contract_compatibility
+    objective: 1.0
+    window: 30d
+    sli: "production events conform to an active versioned contract"

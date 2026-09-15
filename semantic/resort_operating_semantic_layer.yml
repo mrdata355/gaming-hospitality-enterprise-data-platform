@@ -1,0 +1,29 @@
+version: 1
+semantic_model: resort_operating_model
+notice: synthetic portfolio definitions; not company-private metrics
+entities:
+  guest: {key: enterprise_guest_id}
+  property: {key: property_code}
+  reservation: {key: reservation_id}
+  gaming_session: {key: session_id}
+metrics:
+  occupancy_pct:
+    expression: "100 * rooms_sold / NULLIF(rooms_available, 0)"
+    grain: property_day
+    owner: hotel_analytics
+  adr:
+    expression: "room_revenue / NULLIF(rooms_sold, 0)"
+    grain: property_day
+    owner: revenue_management
+  gaming_actual_win:
+    expression: "coin_in - payout - jackpot_amount"
+    grain: property_5min
+    owner: gaming_analytics
+  guest_total_measured_value:
+    expression: "hotel_revenue + gaming_actual_win + dining_revenue + entertainment_revenue + spa_revenue"
+    grain: guest_day
+    owner: enterprise_analytics
+  pipeline_reconciliation_rate:
+    expression: "balanced_runs / NULLIF(completed_runs, 0)"
+    grain: pipeline_day
+    owner: data_platform
