@@ -1,0 +1,86 @@
+{
+  "name": "pl_hotel_db2_to_cloud",
+  "properties": {
+    "description": "Parameterized DB2 hotel incremental migration bridge. Captures a stable high watermark, stages data, invokes validation, and only advances the watermark after reconciliation.",
+    "parameters": {
+      "pipelineName": {"type": "String", "defaultValue": "hotel_reservation_incremental"},
+      "sourceTable": {"type": "String", "defaultValue": "HOTEL.RESERVATION_CURRENT"},
+      "targetPath": {"type": "String", "defaultValue": "landing/hotel/reservations"}
+    },
+    "variables": {
+      "lowWatermark": {"type": "Integer"},
+      "highWatermark": {"type": "Integer"},
+      "batchId": {"type": "String"}
+    },
+    "activities": [
+      {
+        "name": "LookupLowWatermark",
+        "type": "Lookup",
+        "dependsOn": [],
+        "typeProperties": {
+          "source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT last_success_value FROM ctl.pipeline_watermark WHERE pipeline_name = '@{pipeline().parameters.pipelineName}'"},
+          "dataset": {"referenceName": "ds_sqlserver_control", "type": "DatasetReference"},
+          "firstRowOnly": true
+        }
+      },
+      {
+        "name": "CaptureHighWatermark",
+        "type": "Lookup",
+        "dependsOn": [{"activity": "LookupLowWatermark", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "source": {"type": "Db2Source", "query": "SELECT COALESCE(MAX(SOURCE_SEQUENCE),0) AS HIGH_WATERMARK FROM HOTEL.RESERVATION_CURRENT WITH UR"},
+          "dataset": {"referenceName": "ds_db2_hotel", "type": "DatasetReference"},
+          "firstRowOnly": true
+        }
+      },
+      {
+        "name": "CopyDb2ReservationRange",
+        "type": "Copy",
+        "dependsOn": [{"activity": "CaptureHighWatermark", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.03:00:00", "retry": 3, "retryIntervalInSeconds": 30},
+        "typeProperties": {
+          "source": {
+            "type": "Db2Source",
+            "query": "SELECT * FROM HOTEL.RESERVATION_CURRENT WHERE SOURCE_SEQUENCE > @{activity('LookupLowWatermark').output.firstRow.last_success_value} AND SOURCE_SEQUENCE <= @{activity('CaptureHighWatermark').output.firstRow.HIGH_WATERMARK} WITH UR",
+            "queryTimeout": "02:00:00"
+          },
+          "sink": {"type": "DelimitedTextSink", "storeSettings": {"type": "GoogleCloudStorageWriteSettings"}},
+          "enableStaging": false,
+          "validateDataConsistency": true
+        },
+        "inputs": [{"referenceName": "ds_db2_hotel", "type": "DatasetReference"}],
+        "outputs": [{"referenceName": "ds_gcs_landing", "type": "DatasetReference", "parameters": {"path": "@pipeline().parameters.targetPath"}}]
+      },
+      {
+        "name": "InvokeCloudValidation",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "CopyDb2ReservationRange", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@concat(pipeline().globalParameters.cloudRunBaseUrl, '/v1/batch/validate/hotel-reservations')",
+          "headers": {"Content-Type": "application/json"},
+          "body": {
+            "pipeline_name": "@{pipeline().parameters.pipelineName}",
+            "low_watermark": "@{activity('LookupLowWatermark').output.firstRow.last_success_value}",
+            "high_watermark": "@{activity('CaptureHighWatermark').output.firstRow.HIGH_WATERMARK}",
+            "copy_rows": "@{activity('CopyDb2ReservationRange').output.rowsCopied}"
+          },
+          "authentication": {"type": "MSI", "resource": "@pipeline().globalParameters.cloudRunAudience"}
+        }
+      },
+      {
+        "name": "CommitWatermark",
+        "type": "Script",
+        "dependsOn": [{"activity": "InvokeCloudValidation", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {
+          "scripts": [{
+            "type": "NonQuery",
+            "text": "UPDATE ctl.pipeline_watermark SET last_success_value = @{activity('CaptureHighWatermark').output.firstRow.HIGH_WATERMARK}, last_success_utc = SYSUTCDATETIME() WHERE pipeline_name = '@{pipeline().parameters.pipelineName}'"
+          }]
+        }
+      }
+    ],
+    "annotations": ["DB2", "Hotel", "Incremental", "Restartable", "CloudMigration"]
+  }
+}

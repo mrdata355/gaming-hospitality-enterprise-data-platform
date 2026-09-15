@@ -1,0 +1,9 @@
+{
+  "name": "ds_db2_hotel",
+  "properties": {
+    "linkedServiceName": {"referenceName": "ls_db2_hospitality", "type": "LinkedServiceReference"},
+    "type": "Db2Table",
+    "schema": [],
+    "typeProperties": {"tableName": "HOTEL.RESERVATION_CURRENT"}
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "name": "ls_db2_hospitality",
+  "properties": {
+    "type": "Db2",
+    "connectVia": {"referenceName": "SelfHostedIR", "type": "IntegrationRuntimeReference"},
+    "typeProperties": {
+      "server": "@{linkedService().Db2Server}",
+      "database": "@{linkedService().Db2Database}",
+      "authenticationType": "Basic",
+      "username": "@{linkedService().Db2User}",
+      "password": {"type": "AzureKeyVaultSecret", "store": {"referenceName": "ls_keyvault", "type": "LinkedServiceReference"}, "secretName": "db2-password"}
+    },
+    "parameters": {
+      "Db2Server": {"type": "String"},
+      "Db2Database": {"type": "String"},
+      "Db2User": {"type": "String"}
+    }
+  }
+}

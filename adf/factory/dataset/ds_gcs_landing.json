@@ -1,0 +1,16 @@
+{
+  "name": "ds_gcs_landing",
+  "properties": {
+    "parameters": {"path": {"type": "String"}},
+    "linkedServiceName": {"referenceName": "ls_gcs_landing", "type": "LinkedServiceReference"},
+    "type": "DelimitedText",
+    "typeProperties": {
+      "location": {"type": "GoogleCloudStorageLocation", "folderPath": "@dataset().path"},
+      "columnDelimiter": ",",
+      "escapeChar": "\\",
+      "firstRowAsHeader": true,
+      "quoteChar": "\""
+    },
+    "schema": []
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "name": "pl_enterprise_migration_orchestrator",
+  "properties": {
+    "description": "Top-level migration controller spanning hotel, gaming, rewards and cloud publication with failure isolation.",
+    "parameters": {"runMode": {"type": "String", "defaultValue": "INCREMENTAL"}},
+    "activities": [
+      {"name": "HotelReservations", "type": "ExecutePipeline", "dependsOn": [], "typeProperties": {"pipeline": {"referenceName": "pl_hotel_db2_to_cloud", "type": "PipelineReference"}, "waitOnCompletion": true}},
+      {"name": "GamingActivity", "type": "ExecutePipeline", "dependsOn": [], "typeProperties": {"pipeline": {"referenceName": "pl_gaming_db2_to_pubsub", "type": "PipelineReference"}, "waitOnCompletion": true}},
+      {"name": "RewardsActivity", "type": "ExecutePipeline", "dependsOn": [], "typeProperties": {"pipeline": {"referenceName": "pl_rewards_db2_to_cloud", "type": "PipelineReference"}, "waitOnCompletion": true}},
+      {"name": "PublishGoldAndReconcile", "type": "ExecutePipeline", "dependsOn": [
+        {"activity": "HotelReservations", "dependencyConditions": ["Succeeded"]},
+        {"activity": "GamingActivity", "dependencyConditions": ["Succeeded"]},
+        {"activity": "RewardsActivity", "dependencyConditions": ["Succeeded"]}
+      ], "typeProperties": {"pipeline": {"referenceName": "pl_gold_publish_reconcile", "type": "PipelineReference"}, "waitOnCompletion": true}}
+    ],
+    "annotations": ["Enterprise", "Migration", "ADF", "FanOutFanIn"]
+  }
+}

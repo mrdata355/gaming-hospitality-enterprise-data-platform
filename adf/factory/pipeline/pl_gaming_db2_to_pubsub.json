@@ -1,0 +1,31 @@
+{
+  "name": "pl_gaming_db2_to_pubsub",
+  "properties": {
+    "description": "DB2 gaming micro-batch bridge that lands replayable objects before publication into the event-driven GCP path.",
+    "activities": [
+      {
+        "name": "RunSSISGamingExtract",
+        "type": "ExecuteSSISPackage",
+        "dependsOn": [],
+        "typeProperties": {
+          "packageLocation": {"type": "SSISDB", "packagePath": "GamingHospitality/EnterpriseDataPlatform/GamingActivity_Incremental.dtsx"},
+          "loggingLevel": "Basic"
+        },
+        "connectVia": {"referenceName": "AzureSSISIR", "type": "IntegrationRuntimeReference"}
+      },
+      {
+        "name": "PublishStagedEvents",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "RunSSISGamingExtract", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "method": "POST",
+          "url": "@concat(pipeline().globalParameters.cloudRunBaseUrl, '/v1/batch/publish/gaming')",
+          "headers": {"Content-Type": "application/json"},
+          "body": {"source": "ssisdb", "package": "GamingActivity_Incremental", "mode": "replay-safe"},
+          "authentication": {"type": "MSI", "resource": "@pipeline().globalParameters.cloudRunAudience"}
+        }
+      }
+    ],
+    "annotations": ["Gaming", "SSIS", "PubSub", "Hybrid"]
+  }
+}

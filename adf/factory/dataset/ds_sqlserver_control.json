@@ -1,0 +1,9 @@
+{
+  "name": "ds_sqlserver_control",
+  "properties": {
+    "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+    "type": "SqlServerTable",
+    "schema": [],
+    "typeProperties": {"schema": "ctl", "table": "pipeline_watermark"}
+  }
+}
