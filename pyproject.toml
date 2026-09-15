@@ -10,6 +10,10 @@ requires-python = ">=3.11"
 dependencies = [
   "pydantic>=2.9,<3",
   "pydantic-settings>=2.5,<3",
+]
+
+[project.optional-dependencies]
+cloud = [
   "google-cloud-pubsub>=2.23,<3",
   "google-cloud-storage>=2.18,<3",
   "google-cloud-bigquery>=3.25,<4",
@@ -17,20 +21,30 @@ dependencies = [
   "uvicorn>=0.30,<1",
   "orjson>=3.10,<4",
   "tenacity>=9,<10",
+]
+legacy = [
   "pyodbc>=5.1,<6",
   "ibm-db>=3.2,<4",
+]
+ml = [
   "pandas>=2.2,<3",
   "scikit-learn>=1.5,<2",
 ]
-
-[project.optional-dependencies]
-dev = ["pytest>=8.3,<9", "pytest-cov>=5,<6", "ruff>=0.7,<1", "mypy>=1.11,<2"]
+full = [
+  "gaming-hospitality-enterprise-data-platform[cloud,legacy,ml]",
+]
+dev = [
+  "pytest>=8.3,<9",
+  "pytest-cov>=5,<6",
+  "ruff>=0.7,<1",
+  "mypy>=1.11,<2",
+]
 
 [tool.setuptools.packages.find]
 where = ["src"]
 
 [tool.pytest.ini_options]
-pythonpath = ["src"]
+pythonpath = ["src", "."]
 testpaths = ["tests"]
 
 [tool.ruff]

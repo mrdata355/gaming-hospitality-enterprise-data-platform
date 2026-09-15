@@ -3,6 +3,6 @@ ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 PORT=8080
 WORKDIR /app
 COPY pyproject.toml README.md ./
 COPY src ./src
-RUN pip install --no-cache-dir .
+RUN pip install --no-cache-dir '.[cloud]'
 USER 65532:65532
 CMD ["sh", "-c", "uvicorn resort_platform.services.event_gateway:app --host 0.0.0.0 --port ${PORT}"]
