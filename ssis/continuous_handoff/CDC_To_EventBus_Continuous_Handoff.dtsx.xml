@@ -1,0 +1,355 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Synthetic SSIS continuous-handoff reference.
+
+Architecture boundary:
+SSIS handles controlled CDC extraction, bounded watermarks, staging, validation,
+transactional outbox creation, package logging and reconciliation. It is not
+presented as the continuous stream-processing engine. Pub/Sub + Dataflow,
+Event Hubs + Stream Analytics, or Spark Structured Streaming own that role.
+
+All package names, paths, servers, connections and identifiers are generated.
+-->
+<DTS:Executable
+  xmlns:DTS="www.microsoft.com/SqlServer/Dts"
+  DTS:ExecutableType="Microsoft.Package"
+  DTS:ObjectName="CDC_To_EventBus_Continuous_Handoff"
+  DTS:ProtectionLevel="DontSaveSensitive">
+
+  <DTS:Property DTS:Name="PackageFormatVersion">8</DTS:Property>
+  <DTS:Property DTS:Name="VersionMajor">1</DTS:Property>
+  <DTS:Property DTS:Name="VersionMinor">0</DTS:Property>
+  <DTS:Property DTS:Name="CreatorName">portfolio-data-platform</DTS:Property>
+  <DTS:Property DTS:Name="DelayValidation">true</DTS:Property>
+  <DTS:Property DTS:Name="MaxConcurrentExecutables">4</DTS:Property>
+
+  <DTS:Variables>
+    <DTS:Variable DTS:ObjectName="Environment" DTS:DataType="8">
+      <DTS:VariableValue>dev</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="DomainName" DTS:DataType="8">
+      <DTS:VariableValue>hotel_reservation</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="SourceSystem" DTS:DataType="8">
+      <DTS:VariableValue>DB2_HOSPITALITY</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="TopicName" DTS:DataType="8">
+      <DTS:VariableValue>hotel.reservation-events.v1</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="LowWatermark" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="HighWatermark" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="ExtractRowCount" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="PublishedRowCount" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="QuarantineRowCount" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="DuplicateRowCount" DTS:DataType="20">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="BatchId" DTS:DataType="8">
+      <DTS:VariableValue></DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="ClaimToken" DTS:DataType="8">
+      <DTS:VariableValue></DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="RetryCount" DTS:DataType="3">
+      <DTS:VariableValue>0</DTS:VariableValue>
+    </DTS:Variable>
+    <DTS:Variable DTS:ObjectName="MaxRetryCount" DTS:DataType="3">
+      <DTS:VariableValue>3</DTS:VariableValue>
+    </DTS:Variable>
+  </DTS:Variables>
+
+  <DTS:ConnectionManagers>
+    <DTS:ConnectionManager DTS:ObjectName="CM_DB2_HOSPITALITY">
+      <DTS:Property DTS:Name="CreationName">OLEDB</DTS:Property>
+      <DTS:Property DTS:Name="ConnectionString">
+        Data Source=generated-db2-hospitality;Initial Catalog=HOSPITALITY;Integrated Security=SSPI;
+      </DTS:Property>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:ObjectName="CM_SQLSERVER_CONTROL">
+      <DTS:Property DTS:Name="CreationName">OLEDB</DTS:Property>
+      <DTS:Property DTS:Name="ConnectionString">
+        Data Source=generated-sql-control;Initial Catalog=EnterpriseDataPlatform;Integrated Security=SSPI;
+      </DTS:Property>
+    </DTS:ConnectionManager>
+    <DTS:ConnectionManager DTS:ObjectName="CM_EVENT_PUBLISHER_API">
+      <DTS:Property DTS:Name="CreationName">HTTP</DTS:Property>
+      <DTS:Property DTS:Name="ConnectionString">
+        https://generated-event-gateway.example.internal/v1/events/publish
+      </DTS:Property>
+    </DTS:ConnectionManager>
+  </DTS:ConnectionManagers>
+
+  <DTS:Executables>
+    <DTS:Executable
+      DTS:ObjectName="00 Initialize Batch"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Allocate the run, preserve source metadata, and mark status STARTING.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC audit.usp_StartPipelineRun
+          @pipeline_name = 'CDC_To_EventBus_Continuous_Handoff',
+          @domain_name = ?,
+          @source_system = ?,
+          @batch_id = ? OUTPUT;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="01 Read Committed Low Watermark"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Read only the last successfully committed watermark. Failed batches do not advance it.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        SELECT committed_watermark
+        FROM ctl.SourceWatermark
+        WHERE source_system = ? AND domain_name = ?;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="02 Capture Bounded High Watermark"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Capture the source upper bound before extraction for deterministic restart/replay.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        SELECT MAX(SOURCE_SEQUENCE)
+        FROM HOSPITALITY.RESERVATION
+        WITH UR;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="03 Extract DB2 CDC Window"
+      DTS:ExecutableType="Microsoft.Pipeline">
+      <DTS:Property DTS:Name="Description">
+        Extract rows in the half-open/closed watermark interval: low &lt; sequence &lt;= high.
+      </DTS:Property>
+      <DTS:ObjectData>
+        <pipeline>
+          <components>
+            <component name="DB2 Reservation Source" componentClassID="OLEDBSource">
+              <properties>
+                <property name="AccessMode">SQLCommand</property>
+                <property name="SqlCommand">
+                  SELECT
+                    RESERVATION_ID,
+                    GUEST_ID,
+                    PROPERTY_CODE,
+                    ARRIVAL_DATE,
+                    DEPARTURE_DATE,
+                    STATUS,
+                    ROOM_TYPE_CODE,
+                    ROOM_REVENUE,
+                    SOURCE_SEQUENCE,
+                    SOURCE_UPDATED_AT
+                  FROM HOSPITALITY.RESERVATION
+                  WHERE SOURCE_SEQUENCE &gt; ?
+                    AND SOURCE_SEQUENCE &lt;= ?
+                  ORDER BY SOURCE_SEQUENCE
+                  WITH UR
+                </property>
+              </properties>
+            </component>
+
+            <component name="Derived Event Metadata" componentClassID="DerivedColumn">
+              <properties>
+                <property name="event_type">HOTEL_RESERVATION</property>
+                <property name="schema_version">1</property>
+                <property name="source_system">DB2_HOSPITALITY</property>
+              </properties>
+            </component>
+
+            <component name="Required Field Validation" componentClassID="ConditionalSplit">
+              <properties>
+                <property name="ValidRow">
+                  !ISNULL(RESERVATION_ID) &amp;&amp;
+                  !ISNULL(PROPERTY_CODE) &amp;&amp;
+                  !ISNULL(SOURCE_SEQUENCE)
+                </property>
+              </properties>
+            </component>
+
+            <component name="Stage Valid CDC Rows" componentClassID="OLEDBDestination">
+              <properties>
+                <property name="OpenRowset">stream.CdcReservationStage</property>
+                <property name="FastLoadOptions">TABLOCK,CHECK_CONSTRAINTS</property>
+              </properties>
+            </component>
+
+            <component name="Stage Invalid CDC Rows" componentClassID="OLEDBDestination">
+              <properties>
+                <property name="OpenRowset">stream.QuarantineEvent</property>
+              </properties>
+            </component>
+          </components>
+        </pipeline>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="04 Generate Stable Event IDs"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Build deterministic IDs from source, business key, source sequence and schema version.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC stream.usp_MaterializeCdcStageEvents
+          @batch_id = ?,
+          @source_system = 'DB2_HOSPITALITY',
+          @event_type = 'HOTEL_RESERVATION',
+          @schema_version = '1';
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="05 Write Transactional Outbox"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Insert canonical event envelopes transactionally; duplicate event IDs are ignored.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC stream.usp_LoadOutboxFromCdcStage @batch_id = ?;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="06 Claim Outbox Batch"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Claim READY/FAILED events with a lease token so multiple publisher workers cannot double-send work.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC stream.usp_ClaimOutboxBatch
+          @max_rows = 5000,
+          @lease_seconds = 120,
+          @claim_token = ? OUTPUT;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="07 Publish Claimed Events"
+      DTS:ExecutableType="Microsoft.ScriptTask">
+      <DTS:Property DTS:Name="Description">
+        Send canonical envelopes to the generated event gateway. The gateway publishes to Pub/Sub or Event Hubs.
+      </DTS:Property>
+      <DTS:ObjectData>
+        <ScriptProject>
+          <ReadOnlyVariables>
+            User::BatchId,
+            User::ClaimToken,
+            User::TopicName,
+            User::Environment
+          </ReadOnlyVariables>
+          <ReadWriteVariables>
+            User::PublishedRowCount,
+            User::RetryCount,
+            User::QuarantineRowCount
+          </ReadWriteVariables>
+          <PseudoCode>
+            load claimed rows;
+            for each row:
+              serialize canonical envelope;
+              send idempotency metadata = event_id;
+              on success acknowledge outbox row;
+              on retryable response retry with bounded backoff;
+              on permanent contract failure quarantine with reason;
+          </PseudoCode>
+        </ScriptProject>
+      </DTS:ObjectData>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="08 Reconcile Extract To Outbox"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Assert extract = published + quarantine + duplicate explained rows before committing progress.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC audit.usp_ReconcileCdcHandoff @batch_id = ?;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="09 Commit Source Watermark"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Advance source progress only after reconciliation passes.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC ctl.usp_CommitSourceWatermark
+          @source_system = ?,
+          @domain_name = ?,
+          @new_watermark = ?,
+          @batch_id = ?;
+      </DTS:Property>
+    </DTS:Executable>
+
+    <DTS:Executable
+      DTS:ObjectName="10 Complete Batch"
+      DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+      <DTS:Property DTS:Name="Description">
+        Persist final counts, watermark, duration, retry count and completion state.
+      </DTS:Property>
+      <DTS:Property DTS:Name="SqlStatementSource">
+        EXEC audit.usp_CompletePipelineRun
+          @batch_id = ?,
+          @status = 'SUCCEEDED',
+          @source_rows = ?,
+          @target_rows = ?,
+          @quarantine_rows = ?;
+      </DTS:Property>
+    </DTS:Executable>
+  </DTS:Executables>
+
+  <DTS:PrecedenceConstraints>
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_00_01" DTS:From="00 Initialize Batch" DTS:To="01 Read Committed Low Watermark" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_01_02" DTS:From="01 Read Committed Low Watermark" DTS:To="02 Capture Bounded High Watermark" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_02_03" DTS:From="02 Capture Bounded High Watermark" DTS:To="03 Extract DB2 CDC Window" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_03_04" DTS:From="03 Extract DB2 CDC Window" DTS:To="04 Generate Stable Event IDs" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_04_05" DTS:From="04 Generate Stable Event IDs" DTS:To="05 Write Transactional Outbox" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_05_06" DTS:From="05 Write Transactional Outbox" DTS:To="06 Claim Outbox Batch" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_06_07" DTS:From="06 Claim Outbox Batch" DTS:To="07 Publish Claimed Events" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_07_08" DTS:From="07 Publish Claimed Events" DTS:To="08 Reconcile Extract To Outbox" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_08_09" DTS:From="08 Reconcile Extract To Outbox" DTS:To="09 Commit Source Watermark" DTS:Value="0" />
+    <DTS:PrecedenceConstraint DTS:ObjectName="PC_09_10" DTS:From="09 Commit Source Watermark" DTS:To="10 Complete Batch" DTS:Value="0" />
+  </DTS:PrecedenceConstraints>
+
+  <DTS:EventHandlers>
+    <DTS:EventHandler DTS:EventID="OnError">
+      <DTS:Executables>
+        <DTS:Executable DTS:ObjectName="Capture Package Error" DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+          <DTS:Property DTS:Name="SqlStatementSource">
+            EXEC audit.usp_FailPipelineRun
+              @batch_id = ?,
+              @error_message = ?,
+              @failed_task = ?;
+          </DTS:Property>
+        </DTS:Executable>
+        <DTS:Executable DTS:ObjectName="Release Claims" DTS:ExecutableType="Microsoft.ExecuteSQLTask">
+          <DTS:Property DTS:Name="SqlStatementSource">
+            UPDATE stream.OutboxEvent
+               SET publish_status = 'FAILED',
+                   claim_token = NULL,
+                   claimed_at = NULL,
+                   claim_expires_at = NULL
+             WHERE claim_token = ?
+               AND publish_status = 'CLAIMED';
+          </DTS:Property>
+        </DTS:Executable>
+      </DTS:Executables>
+    </DTS:EventHandler>
+  </DTS:EventHandlers>
+</DTS:Executable>
