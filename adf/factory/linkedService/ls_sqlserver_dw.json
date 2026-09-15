@@ -1,0 +1,19 @@
+{
+  "name": "ls_sqlserver_dw",
+  "properties": {
+    "type": "SqlServer",
+    "connectVia": {"referenceName": "SelfHostedIR", "type": "IntegrationRuntimeReference"},
+    "typeProperties": {
+      "server": "@{linkedService().ServerName}",
+      "database": "@{linkedService().DatabaseName}",
+      "authenticationType": "SQL",
+      "userName": "@{linkedService().UserName}",
+      "password": {"type": "AzureKeyVaultSecret", "store": {"referenceName": "ls_keyvault", "type": "LinkedServiceReference"}, "secretName": "sqlserver-dw-password"}
+    },
+    "parameters": {
+      "ServerName": {"type": "String"},
+      "DatabaseName": {"type": "String"},
+      "UserName": {"type": "String"}
+    }
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "name": "pl_rewards_db2_to_cloud",
+  "properties": {
+    "description": "Incremental rewards activity migration with bounded DB2 watermark and cloud validation.",
+    "activities": [
+      {"name": "RunRewardsExtract", "type": "ExecuteSSISPackage", "dependsOn": [], "typeProperties": {"packageLocation": {"type": "SSISDB", "packagePath": "GamingHospitality/EnterpriseDataPlatform/RewardsActivity_Incremental.dtsx"}, "loggingLevel": "Basic"}, "connectVia": {"referenceName": "AzureSSISIR", "type": "IntegrationRuntimeReference"}},
+      {"name": "ValidateRewardsCloudCopy", "type": "WebActivity", "dependsOn": [{"activity": "RunRewardsExtract", "dependencyConditions": ["Succeeded"]}], "typeProperties": {"method": "POST", "url": "@concat(pipeline().globalParameters.cloudRunBaseUrl, '/v1/batch/validate/rewards')", "headers": {"Content-Type": "application/json"}, "body": {"mode": "bounded-watermark", "source": "db2"}, "authentication": {"type": "MSI", "resource": "@pipeline().globalParameters.cloudRunAudience"}}}
+    ],
+    "annotations": ["Rewards", "DB2", "SSIS", "CloudMigration"]
+  }
+}

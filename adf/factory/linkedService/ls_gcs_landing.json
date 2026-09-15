@@ -1,0 +1,11 @@
+{
+  "name": "ls_gcs_landing",
+  "properties": {
+    "type": "GoogleCloudStorage",
+    "typeProperties": {
+      "accessKeyId": "@{linkedService().AccessKeyId}",
+      "secretAccessKey": {"type": "AzureKeyVaultSecret", "store": {"referenceName": "ls_keyvault", "type": "LinkedServiceReference"}, "secretName": "gcs-interoperability-secret"}
+    },
+    "parameters": {"AccessKeyId": {"type": "String"}}
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "name": "ls_keyvault",
+  "properties": {
+    "type": "AzureKeyVault",
+    "typeProperties": {"baseUrl": "@{linkedService().VaultUrl}"},
+    "parameters": {"VaultUrl": {"type": "String"}}
+  }
+}

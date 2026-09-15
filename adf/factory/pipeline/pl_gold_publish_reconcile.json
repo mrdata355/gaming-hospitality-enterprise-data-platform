@@ -1,0 +1,11 @@
+{
+  "name": "pl_gold_publish_reconcile",
+  "properties": {
+    "description": "Fan-in publication gate. Gold data products are published only after cross-domain reconciliation succeeds.",
+    "activities": [
+      {"name": "RunEnterpriseReconciliation", "type": "Script", "dependsOn": [], "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"}, "typeProperties": {"scripts": [{"type": "Query", "text": "SELECT pipeline_name, status, source_rows, target_rows, quarantined_rows FROM ctl.pipeline_run WHERE started_utc >= DATEADD(hour,-24,SYSUTCDATETIME())"}]}},
+      {"name": "TriggerGoldRefresh", "type": "WebActivity", "dependsOn": [{"activity": "RunEnterpriseReconciliation", "dependencyConditions": ["Succeeded"]}], "typeProperties": {"method": "POST", "url": "@concat(pipeline().globalParameters.cloudRunBaseUrl, '/v1/control/gold-refresh')", "headers": {"Content-Type": "application/json"}, "body": {"requested_by": "adf", "gate": "reconciliation"}, "authentication": {"type": "MSI", "resource": "@pipeline().globalParameters.cloudRunAudience"}}}
+    ],
+    "annotations": ["Gold", "Reconciliation", "PublicationGate"]
+  }
+}
