@@ -7,7 +7,13 @@ from typing import Any
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from resort_platform.models.events import HotelReservationEvent, MobileAppEvent, RewardActivityEvent, SlotPlayEvent, TablePlayEvent
+from resort_platform.models.events import (
+    HotelReservationEvent,
+    MobileAppEvent,
+    RewardActivityEvent,
+    SlotPlayEvent,
+    TablePlayEvent,
+)
 from resort_platform.quality import QualityEngine, no_plaintext_sensitive_fields, required
 from resort_platform.storage.medallion import MedallionStorage
 
@@ -20,7 +26,9 @@ MODELS = {
     "REWARD_ACTIVITY": RewardActivityEvent,
     "MOBILE_APP": MobileAppEvent,
 }
-QUALITY = QualityEngine([required("event_id", "event_type", "event_ts"), no_plaintext_sensitive_fields()])
+QUALITY = QualityEngine(
+    [required("event_id", "event_type", "event_ts"), no_plaintext_sensitive_fields()]
+)
 
 
 class PushMessage(BaseModel):
@@ -59,11 +67,28 @@ async def consume(request: Request) -> None:
     normalized = event.model_dump(mode="json")
     result = QUALITY.evaluate(normalized)
     storage = MedallionStorage()
-    business_key = str(normalized.get("session_id") or normalized.get("reservation_id") or normalized.get("guest_token") or normalized["event_id"])
+    business_key = str(
+        normalized.get("session_id")
+        or normalized.get("reservation_id")
+        or normalized.get("guest_token")
+        or normalized["event_id"]
+    )
     domain = event_type.split("_")[0].lower()
     if not result.valid:
         quarantine = dict(normalized)
         quarantine["dq_violations"] = [v.__dict__ for v in result.violations]
-        storage.write_json(layer="quarantine", domain=domain, entity=event_type.lower(), business_key=business_key, payload=quarantine)
+        storage.write_json(
+            layer="quarantine",
+            domain=domain,
+            entity=event_type.lower(),
+            business_key=business_key,
+            payload=quarantine,
+        )
         raise HTTPException(status_code=422, detail="Data-quality validation failed")
-    storage.write_json(layer="bronze", domain=domain, entity=event_type.lower(), business_key=business_key, payload=normalized)
+    storage.write_json(
+        layer="bronze",
+        domain=domain,
+        entity=event_type.lower(),
+        business_key=business_key,
+        payload=normalized,
+    )

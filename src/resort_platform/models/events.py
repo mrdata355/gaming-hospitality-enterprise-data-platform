@@ -8,7 +8,6 @@ from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-
 Money = Annotated[Decimal, Field(max_digits=18, decimal_places=2)]
 
 

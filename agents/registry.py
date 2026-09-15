@@ -3,15 +3,31 @@ from __future__ import annotations
 from dataclasses import dataclass
 from itertools import product
 
-
 DOMAINS = (
-    "Data Platform", "Hotel", "Gaming", "Loyalty", "Digital Product", "Marketing",
-    "Finance", "Revenue Management", "Property Operations", "Security", "Compliance",
-    "Data Science", "SRE", "Executive Analytics"
+    "Data Platform",
+    "Hotel",
+    "Gaming",
+    "Loyalty",
+    "Digital Product",
+    "Marketing",
+    "Finance",
+    "Revenue Management",
+    "Property Operations",
+    "Security",
+    "Compliance",
+    "Data Science",
+    "SRE",
+    "Executive Analytics",
 )
 SPECIALIZATIONS = (
-    "Sentinel", "Forecaster", "Optimizer", "Reconciler",
-    "Contract Guardian", "Incident Analyst", "Capacity Planner", "Portfolio Advisor"
+    "Sentinel",
+    "Forecaster",
+    "Optimizer",
+    "Reconciler",
+    "Contract Guardian",
+    "Incident Analyst",
+    "Capacity Planner",
+    "Portfolio Advisor",
 )
 
 
@@ -34,7 +50,12 @@ def build_registry() -> tuple[AgentProfile, ...]:
                 domain=domain,
                 specialization=specialization,
                 objective=f"Provide evidence-backed {specialization.lower()} recommendations for {domain}.",
-                permitted_actions=("READ_METRICS", "READ_CONTRACTS", "READ_WORK_ITEMS", "PROPOSE_RECOMMENDATION"),
+                permitted_actions=(
+                    "READ_METRICS",
+                    "READ_CONTRACTS",
+                    "READ_WORK_ITEMS",
+                    "PROPOSE_RECOMMENDATION",
+                ),
             )
         )
     return tuple(profiles)
