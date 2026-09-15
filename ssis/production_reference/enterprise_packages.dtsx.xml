@@ -1,0 +1,250 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+Synthetic SSIS package reference for portfolio demonstration.
+Package, connection, library, path, server, and environment names are generated.
+This is not private Venetian SSIS metadata.
+-->
+<PortfolioSSISReference version="1.0">
+  <Parameters>
+    <Parameter name="Environment" dataType="String" default="DEV" />
+    <Parameter name="SourceLowWatermark" dataType="Int64" default="0" />
+    <Parameter name="SourceHighWatermark" dataType="Int64" default="0" />
+    <Parameter name="LandingRoot" dataType="String" default="\\synthetic\landing" />
+    <Parameter name="GcsLandingPrefix" dataType="String" default="gs://vh-portfolio-dev-landing-us-west1" />
+    <Parameter name="SqlControlConnection" dataType="String" default="PortfolioControl" />
+    <Parameter name="FailOnReconciliationDifference" dataType="Boolean" default="true" />
+    <Parameter name="RetryCount" dataType="Int32" default="3" />
+    <Parameter name="RetrySeconds" dataType="Int32" default="30" />
+  </Parameters>
+  <Connections>
+    <Connection name="CM_DB2_HOSPITALITY" type="OLEDB" secretReference="kv/db2-hospitality" />
+    <Connection name="CM_DB2_GAMING" type="OLEDB" secretReference="kv/db2-gaming" />
+    <Connection name="CM_DB2_LOYALTY" type="OLEDB" secretReference="kv/db2-loyalty" />
+    <Connection name="CM_SQLSERVER_FINANCE" type="ADO.NET" secretReference="kv/sql-finance" />
+    <Connection name="CM_SQLSERVER_CONTROL" type="ADO.NET" secretReference="kv/sql-control" />
+    <Connection name="CM_GCS_LANDING" type="ScriptManaged" secretReference="managed-identity" />
+  </Connections>
+  <Environments>
+    <Environment name="DEV" catalogFolder="Portfolio/DEV" />
+    <Environment name="QA" catalogFolder="Portfolio/QA" />
+    <Environment name="STAGE" catalogFolder="Portfolio/STAGE" />
+    <Environment name="PROD" catalogFolder="Portfolio/PROD" />
+  </Environments>
+
+  <Package name="PKG_HOTELRESERVATIONS_INCREMENTAL" source="DB2_HOSPITALITY" entity="HOSPITALITY.RESERVATION" restartable="true">
+    <Variables>
+      <Variable name="RunId" expression="@ExecutionInstanceGUID" />
+      <Variable name="LowWatermark" default="0" />
+      <Variable name="HighWatermark" default="0" />
+      <Variable name="SourceCount" default="0" />
+      <Variable name="LandingCount" default="0" />
+      <Variable name="QuarantineCount" default="0" />
+      <Variable name="DuplicateCount" default="0" />
+      <Variable name="StaleCount" default="0" />
+    </Variables>
+    <ControlFlow>
+      <Task sequence="1" name="AcquireRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL">
+        <Sql>EXEC ctl.usp_begin_pipeline ?, ?, ?, ?, ?, ?</Sql>
+        <OnError action="audit-and-fail" />
+      </Task>
+      <Task sequence="2" name="ReadWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="AcquireRunLock">
+        <Sql>SELECT low_watermark, high_watermark FROM ctl.pipeline_watermark WHERE pipeline_name=? AND source_system=?</Sql>
+        <OnError action="audit-and-fail" />
+      </Task>
+      <Task sequence="3" name="ExtractDB2" type="DataFlow" dependsOn="ReadWatermark">
+        <Retry count="3" seconds="30" />
+        <OnError action="redirect-to-audit-and-fail" />
+      </Task>
+      <Task sequence="4" name="ValidateContract" type="ScriptTask" dependsOn="ExtractDB2">
+        <Script>validate required keys, dates, property code, amounts, source version</Script>
+      </Task>
+      <Task sequence="5" name="WriteLanding" type="DataFlow" dependsOn="ValidateContract">
+        <Destination>hotel/reservation/business_date={BusinessDate}/run_id={RunId}/</Destination>
+      </Task>
+      <Task sequence="6" name="QuarantineRejects" type="DataFlow" dependsOn="ValidateContract">
+        <Destination>quarantine/hotel/reservation/reason={ReasonCode}/run_id={RunId}/</Destination>
+      </Task>
+      <Task sequence="7" name="ReconcileCounts" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="WriteLanding">
+        <Sql>EXEC audit.usp_reconcile_run ?, ?, ?, ?, ?, ?</Sql>
+      </Task>
+      <Task sequence="8" name="PublishReadyEvent" type="ScriptTask" dependsOn="ReconcileCounts">
+        <Event topic="hotel.reservation-events.v1" type="LANDING_READY" />
+      </Task>
+      <Task sequence="9" name="CommitWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="PublishReadyEvent">
+        <Sql>EXEC ctl.usp_commit_pipeline ?, ?, ?, ?, ?, ?, ?, ?, ?, ?</Sql>
+      </Task>
+      <Task sequence="10" name="ReleaseRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="CommitWatermark">
+        <Sql>EXEC ctl.usp_end_pipeline ?, 'SUCCEEDED'</Sql>
+      </Task>
+    </ControlFlow>
+    <DataFlow name="DFT_HOTEL_RESERVATIONS">
+      <Component sequence="1" name="DB2Source" type="OLEDBSource">
+        <Query>SELECT * FROM HOSPITALITY.RESERVATION WHERE UPDATED_SCN &gt; ? AND UPDATED_SCN &lt;= ? WITH UR</Query>
+      </Component>
+      <Component sequence="2" name="RowCountSource" type="RowCount" variable="SourceCount" />
+      <Component sequence="3" name="NormalizeCodes" type="DerivedColumn">
+        <Expression column="PROPERTY_CODE">UPPER(TRIM(PROPERTY_CODE))</Expression>
+        <Expression column="STATUS_CD">UPPER(TRIM(STATUS_CD))</Expression>
+        <Expression column="ROOM_TYPE_CD">UPPER(TRIM(ROOM_TYPE_CD))</Expression>
+      </Component>
+      <Component sequence="4" name="ValidateBusinessKey" type="ConditionalSplit">
+        <Output name="Valid">!ISNULL(RESERVATION_ID) &amp;&amp; !ISNULL(PROPERTY_CODE)</Output>
+        <Output name="Rejected">ISNULL(RESERVATION_ID) || ISNULL(PROPERTY_CODE)</Output>
+      </Component>
+      <Component sequence="5" name="ValidateStayDates" type="ConditionalSplit">
+        <Output name="ValidDates">ARRIVAL_DATE &lt;= DEPARTURE_DATE</Output>
+        <Output name="InvalidDates">ARRIVAL_DATE &gt; DEPARTURE_DATE</Output>
+      </Component>
+      <Component sequence="6" name="ValidateAmounts" type="ConditionalSplit">
+        <Output name="ValidAmounts">ROOM_QTY &gt;= 0 &amp;&amp; REVENUE_AMT &gt;= 0</Output>
+        <Output name="InvalidAmounts">ROOM_QTY &lt; 0 || REVENUE_AMT &lt; 0</Output>
+      </Component>
+      <Component sequence="7" name="LandingWriter" type="FlatFileDestination" path="hotel/reservation" />
+      <Component sequence="8" name="QuarantineWriter" type="FlatFileDestination" path="quarantine/hotel/reservation" />
+      <Component sequence="9" name="RowCountLanding" type="RowCount" variable="LandingCount" />
+      <Component sequence="10" name="RowCountQuarantine" type="RowCount" variable="QuarantineCount" />
+    </DataFlow>
+    <Logging>
+      <Event name="OnPreExecute" destination="audit.pipeline_run" />
+      <Event name="OnPostExecute" destination="audit.pipeline_run" />
+      <Event name="OnError" destination="audit.pipeline_run" />
+      <Event name="OnWarning" destination="audit.pipeline_run" />
+      <Event name="PipelineRowsSent" destination="audit.pipeline_run" />
+      <Event name="Diagnostic" destination="audit.pipeline_run" />
+    </Logging>
+  </Package>
+
+  <Package name="PKG_GAMINGACTIVITY_INCREMENTAL" source="DB2_GAMING" entity="GAMING.SLOT_ACTIVITY" restartable="true">
+    <Variables>
+      <Variable name="RunId" expression="@ExecutionInstanceGUID" />
+      <Variable name="LowWatermark" default="0" />
+      <Variable name="HighWatermark" default="0" />
+      <Variable name="SourceCount" default="0" />
+      <Variable name="LandingCount" default="0" />
+      <Variable name="QuarantineCount" default="0" />
+    </Variables>
+    <ControlFlow>
+      <Task sequence="1" name="AcquireRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" />
+      <Task sequence="2" name="ReadWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="AcquireRunLock" />
+      <Task sequence="3" name="ExtractDB2" type="DataFlow" dependsOn="ReadWatermark"><Retry count="3" seconds="30" /></Task>
+      <Task sequence="4" name="ValidateContract" type="ScriptTask" dependsOn="ExtractDB2" />
+      <Task sequence="5" name="WriteLanding" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="6" name="QuarantineRejects" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="7" name="ReconcileCounts" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="WriteLanding" />
+      <Task sequence="8" name="PublishReadyEvent" type="ScriptTask" dependsOn="ReconcileCounts"><Event topic="gaming.slot-play-events.v1" type="LANDING_READY" /></Task>
+      <Task sequence="9" name="CommitWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="PublishReadyEvent" />
+      <Task sequence="10" name="ReleaseRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="CommitWatermark" />
+    </ControlFlow>
+    <DataFlow name="DFT_GAMING_ACTIVITY">
+      <Component sequence="1" name="DB2Source" type="OLEDBSource"><Query>SELECT * FROM GAMING.SLOT_ACTIVITY WHERE EVENT_SCN &gt; ? AND EVENT_SCN &lt;= ? WITH UR</Query></Component>
+      <Component sequence="2" name="RowCountSource" type="RowCount" variable="SourceCount" />
+      <Component sequence="3" name="NormalizeCodes" type="DerivedColumn" />
+      <Component sequence="4" name="ValidateEventKey" type="ConditionalSplit" />
+      <Component sequence="5" name="ValidateAmounts" type="ConditionalSplit" />
+      <Component sequence="6" name="ValidateEventTime" type="ConditionalSplit" />
+      <Component sequence="7" name="LandingWriter" type="FlatFileDestination" path="gaming/slot_play" />
+      <Component sequence="8" name="QuarantineWriter" type="FlatFileDestination" path="quarantine/gaming/slot_play" />
+      <Component sequence="9" name="RowCountLanding" type="RowCount" variable="LandingCount" />
+      <Component sequence="10" name="RowCountQuarantine" type="RowCount" variable="QuarantineCount" />
+    </DataFlow>
+    <Logging>
+      <Event name="OnPreExecute" destination="audit.pipeline_run" />
+      <Event name="OnPostExecute" destination="audit.pipeline_run" />
+      <Event name="OnError" destination="audit.pipeline_run" />
+      <Event name="OnWarning" destination="audit.pipeline_run" />
+      <Event name="PipelineRowsSent" destination="audit.pipeline_run" />
+      <Event name="Diagnostic" destination="audit.pipeline_run" />
+    </Logging>
+  </Package>
+
+  <Package name="PKG_REWARDSACTIVITY_INCREMENTAL" source="DB2_LOYALTY" entity="LOYALTY.REWARD_ACTIVITY" restartable="true">
+    <Variables>
+      <Variable name="RunId" expression="@ExecutionInstanceGUID" />
+      <Variable name="LowWatermark" default="0" />
+      <Variable name="HighWatermark" default="0" />
+      <Variable name="SourceCount" default="0" />
+      <Variable name="LandingCount" default="0" />
+      <Variable name="QuarantineCount" default="0" />
+    </Variables>
+    <ControlFlow>
+      <Task sequence="1" name="AcquireRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" />
+      <Task sequence="2" name="ReadWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="AcquireRunLock" />
+      <Task sequence="3" name="ExtractDB2" type="DataFlow" dependsOn="ReadWatermark"><Retry count="3" seconds="30" /></Task>
+      <Task sequence="4" name="ValidateContract" type="ScriptTask" dependsOn="ExtractDB2" />
+      <Task sequence="5" name="WriteLanding" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="6" name="QuarantineRejects" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="7" name="ReconcileCounts" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="WriteLanding" />
+      <Task sequence="8" name="PublishReadyEvent" type="ScriptTask" dependsOn="ReconcileCounts"><Event topic="rewards.earn-events.v1" type="LANDING_READY" /></Task>
+      <Task sequence="9" name="CommitWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="PublishReadyEvent" />
+      <Task sequence="10" name="ReleaseRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="CommitWatermark" />
+    </ControlFlow>
+    <DataFlow name="DFT_REWARDS_ACTIVITY">
+      <Component sequence="1" name="DB2Source" type="OLEDBSource"><Query>SELECT * FROM LOYALTY.REWARD_ACTIVITY WHERE EVENT_SCN &gt; ? AND EVENT_SCN &lt;= ? WITH UR</Query></Component>
+      <Component sequence="2" name="RowCountSource" type="RowCount" variable="SourceCount" />
+      <Component sequence="3" name="NormalizeCodes" type="DerivedColumn" />
+      <Component sequence="4" name="ValidateRewardKey" type="ConditionalSplit" />
+      <Component sequence="5" name="ValidateGuestKey" type="ConditionalSplit" />
+      <Component sequence="6" name="ValidateValue" type="ConditionalSplit" />
+      <Component sequence="7" name="LandingWriter" type="FlatFileDestination" path="rewards/activity" />
+      <Component sequence="8" name="QuarantineWriter" type="FlatFileDestination" path="quarantine/rewards/activity" />
+      <Component sequence="9" name="RowCountLanding" type="RowCount" variable="LandingCount" />
+      <Component sequence="10" name="RowCountQuarantine" type="RowCount" variable="QuarantineCount" />
+    </DataFlow>
+    <Logging>
+      <Event name="OnPreExecute" destination="audit.pipeline_run" />
+      <Event name="OnPostExecute" destination="audit.pipeline_run" />
+      <Event name="OnError" destination="audit.pipeline_run" />
+      <Event name="OnWarning" destination="audit.pipeline_run" />
+      <Event name="PipelineRowsSent" destination="audit.pipeline_run" />
+      <Event name="Diagnostic" destination="audit.pipeline_run" />
+    </Logging>
+  </Package>
+
+  <Package name="PKG_PAYMENTTRANSACTION_INCREMENTAL" source="SQLSERVER_FINANCE" entity="FINANCE.PAYMENT_TRANSACTION" restartable="true">
+    <ControlFlow>
+      <Task sequence="1" name="AcquireRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" />
+      <Task sequence="2" name="ReadWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="AcquireRunLock" />
+      <Task sequence="3" name="ExtractSqlServer" type="DataFlow" dependsOn="ReadWatermark" />
+      <Task sequence="4" name="ValidateContract" type="ScriptTask" dependsOn="ExtractSqlServer" />
+      <Task sequence="5" name="WriteLanding" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="6" name="QuarantineRejects" type="DataFlow" dependsOn="ValidateContract" />
+      <Task sequence="7" name="ReconcileCounts" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="WriteLanding" />
+      <Task sequence="8" name="PublishReadyEvent" type="ScriptTask" dependsOn="ReconcileCounts"><Event topic="property.transaction-events.v1" type="LANDING_READY" /></Task>
+      <Task sequence="9" name="CommitWatermark" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="PublishReadyEvent" />
+      <Task sequence="10" name="ReleaseRunLock" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" dependsOn="CommitWatermark" />
+    </ControlFlow>
+  </Package>
+
+  <EventHandlers>
+    <Handler event="OnError">
+      <Task name="CaptureFailureContext" type="ScriptTask" />
+      <Task name="WriteFailureAudit" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" />
+      <Task name="PublishFailureEvent" type="ScriptTask"><Event topic="ops.pipeline-events.v1" type="PIPELINE_FAILED" /></Task>
+    </Handler>
+    <Handler event="OnTaskFailed">
+      <Task name="IncrementFailureCounter" type="ExpressionTask" />
+    </Handler>
+    <Handler event="OnWarning">
+      <Task name="WriteWarningAudit" type="ExecuteSQL" connection="CM_SQLSERVER_CONTROL" />
+    </Handler>
+  </EventHandlers>
+
+  <Deployment>
+    <Catalog name="SSISDB" />
+    <Folder name="Portfolio" />
+    <Project name="GamingHospitalityEnterprise" />
+    <EnvironmentReference name="DEV" />
+    <EnvironmentReference name="QA" />
+    <EnvironmentReference name="STAGE" />
+    <EnvironmentReference name="PROD" />
+    <Validation>
+      <Check name="connection-managers-resolve" required="true" />
+      <Check name="environment-parameters-bound" required="true" />
+      <Check name="logging-enabled" required="true" />
+      <Check name="checkpoint-strategy-documented" required="true" />
+      <Check name="reconciliation-enabled" required="true" />
+      <Check name="quarantine-path-enabled" required="true" />
+      <Check name="watermark-bounds-captured" required="true" />
+    </Validation>
+  </Deployment>
+</PortfolioSSISReference>

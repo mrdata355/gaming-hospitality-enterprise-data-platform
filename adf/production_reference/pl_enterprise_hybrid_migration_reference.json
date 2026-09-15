@@ -1,0 +1,195 @@
+{
+  "name": "pl_enterprise_hybrid_migration_reference",
+  "properties": {
+    "description": "Synthetic production-style migration orchestrator. Names and paths are generated and do not represent private Venetian infrastructure.",
+    "parameters": {
+      "environment": {"type": "String", "defaultValue": "dev"},
+      "businessDate": {"type": "String", "defaultValue": "@formatDateTime(utcnow(),'yyyy-MM-dd')"},
+      "validationEndpoint": {"type": "String", "defaultValue": "https://synthetic.invalid/validate"},
+      "eventGatewayEndpoint": {"type": "String", "defaultValue": "https://synthetic.invalid/events"},
+      "gcsLandingPrefix": {"type": "String", "defaultValue": "gs://vh-portfolio-dev-landing-us-west1"},
+      "maxParallelDomains": {"type": "Int", "defaultValue": 4}
+    },
+    "variables": {
+      "runState": {"type": "String", "defaultValue": "STARTING"},
+      "quarantineCount": {"type": "Integer", "defaultValue": 0},
+      "sourceCount": {"type": "Integer", "defaultValue": 0},
+      "publishedCount": {"type": "Integer", "defaultValue": 0}
+    },
+    "activities": [
+      {
+        "name": "BeginEnterpriseRun",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {
+          "storedProcedureName": "ctl.usp_begin_enterprise_run",
+          "storedProcedureParameters": {
+            "environment": {"value": "@pipeline().parameters.environment", "type": "String"},
+            "run_id": {"value": "@pipeline().RunId", "type": "String"}
+          }
+        }
+      },
+      {
+        "name": "Get_HotelReservations_Watermark",
+        "type": "Lookup",
+        "dependsOn": [{"activity": "BeginEnterpriseRun", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {
+          "source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT low_watermark,high_watermark FROM ctl.pipeline_watermark WHERE pipeline_name='HotelReservations'"},
+          "dataset": {"referenceName": "ds_sqlserver_control", "type": "DatasetReference"}
+        }
+      },
+      {
+        "name": "Copy_HotelReservations_To_Landing",
+        "type": "Copy",
+        "dependsOn": [{"activity": "Get_HotelReservations_Watermark", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.02:00:00", "retry": 3, "retryIntervalInSeconds": 30},
+        "typeProperties": {
+          "source": {"type": "Db2Source", "query": "SELECT * FROM HOSPITALITY.RESERVATION WHERE UPDATED_SCN > ? AND UPDATED_SCN <= ? WITH UR"},
+          "sink": {"type": "DelimitedTextSink", "storeSettings": {"type": "GoogleCloudStorageWriteSettings"}, "formatSettings": {"type": "DelimitedTextWriteSettings", "quoteAllText": true}}
+        },
+        "inputs": [{"referenceName": "ds_db2_enterprise", "type": "DatasetReference", "parameters": {"sourceSystem": "DB2_HOSPITALITY"}}],
+        "outputs": [{"referenceName": "ds_gcs_landing", "type": "DatasetReference", "parameters": {"relativePath": "hotel/reservation"}}]
+      },
+      {
+        "name": "Validate_HotelReservations_Landing",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Copy_HotelReservations_To_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.validationEndpoint", "body": {"domain": "hotel", "entity": "reservation", "runId": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Publish_HotelReservations_Ready",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Validate_HotelReservations_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"topic": "hotel.reservation-events.v1", "event_type": "LANDING_READY", "run_id": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Commit_HotelReservations_Watermark",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [{"activity": "Publish_HotelReservations_Ready", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {"storedProcedureName": "ctl.usp_commit_pipeline", "storedProcedureParameters": {"pipeline_name": {"value": "HotelReservations", "type": "String"}, "run_id": {"value": "@pipeline().RunId", "type": "String"}}}
+      },
+      {
+        "name": "Get_GamingActivity_Watermark",
+        "type": "Lookup",
+        "dependsOn": [{"activity": "BeginEnterpriseRun", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT low_watermark,high_watermark FROM ctl.pipeline_watermark WHERE pipeline_name='GamingActivity'"}, "dataset": {"referenceName": "ds_sqlserver_control", "type": "DatasetReference"}}
+      },
+      {
+        "name": "Copy_GamingActivity_To_Landing",
+        "type": "Copy",
+        "dependsOn": [{"activity": "Get_GamingActivity_Watermark", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.02:00:00", "retry": 3, "retryIntervalInSeconds": 30},
+        "typeProperties": {"source": {"type": "Db2Source", "query": "SELECT * FROM GAMING.SLOT_ACTIVITY WHERE EVENT_SCN > ? AND EVENT_SCN <= ? WITH UR"}, "sink": {"type": "DelimitedTextSink", "storeSettings": {"type": "GoogleCloudStorageWriteSettings"}}},
+        "outputs": [{"referenceName": "ds_gcs_landing", "type": "DatasetReference", "parameters": {"relativePath": "gaming/slot_play"}}]
+      },
+      {
+        "name": "Validate_GamingActivity_Landing",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Copy_GamingActivity_To_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.validationEndpoint", "body": {"domain": "gaming", "entity": "slot_play", "runId": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Publish_GamingActivity_Ready",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Validate_GamingActivity_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"topic": "gaming.slot-play-events.v1", "event_type": "LANDING_READY", "run_id": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Commit_GamingActivity_Watermark",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [{"activity": "Publish_GamingActivity_Ready", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {"storedProcedureName": "ctl.usp_commit_pipeline", "storedProcedureParameters": {"pipeline_name": {"value": "GamingActivity", "type": "String"}, "run_id": {"value": "@pipeline().RunId", "type": "String"}}}
+      },
+      {
+        "name": "Get_RewardsActivity_Watermark",
+        "type": "Lookup",
+        "dependsOn": [{"activity": "BeginEnterpriseRun", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT low_watermark,high_watermark FROM ctl.pipeline_watermark WHERE pipeline_name='RewardsActivity'"}, "dataset": {"referenceName": "ds_sqlserver_control", "type": "DatasetReference"}}
+      },
+      {
+        "name": "Copy_RewardsActivity_To_Landing",
+        "type": "Copy",
+        "dependsOn": [{"activity": "Get_RewardsActivity_Watermark", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.02:00:00", "retry": 3, "retryIntervalInSeconds": 30},
+        "typeProperties": {"source": {"type": "Db2Source", "query": "SELECT * FROM LOYALTY.REWARD_ACTIVITY WHERE EVENT_SCN > ? AND EVENT_SCN <= ? WITH UR"}, "sink": {"type": "DelimitedTextSink", "storeSettings": {"type": "GoogleCloudStorageWriteSettings"}}},
+        "outputs": [{"referenceName": "ds_gcs_landing", "type": "DatasetReference", "parameters": {"relativePath": "rewards/activity"}}]
+      },
+      {
+        "name": "Validate_RewardsActivity_Landing",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Copy_RewardsActivity_To_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.validationEndpoint", "body": {"domain": "rewards", "entity": "activity", "runId": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Publish_RewardsActivity_Ready",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Validate_RewardsActivity_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"topic": "rewards.earn-events.v1", "event_type": "LANDING_READY", "run_id": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Commit_RewardsActivity_Watermark",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [{"activity": "Publish_RewardsActivity_Ready", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {"storedProcedureName": "ctl.usp_commit_pipeline", "storedProcedureParameters": {"pipeline_name": {"value": "RewardsActivity", "type": "String"}, "run_id": {"value": "@pipeline().RunId", "type": "String"}}}
+      },
+      {
+        "name": "Copy_Payments_To_Landing",
+        "type": "Copy",
+        "dependsOn": [{"activity": "BeginEnterpriseRun", "dependencyConditions": ["Succeeded"]}],
+        "policy": {"timeout": "0.02:00:00", "retry": 3, "retryIntervalInSeconds": 30},
+        "typeProperties": {"source": {"type": "SqlServerSource", "sqlReaderQuery": "SELECT * FROM FINANCE.PAYMENT_TRANSACTION WHERE UPDATED_SCN > @LowWatermark AND UPDATED_SCN <= @HighWatermark"}, "sink": {"type": "DelimitedTextSink", "storeSettings": {"type": "GoogleCloudStorageWriteSettings"}}},
+        "outputs": [{"referenceName": "ds_gcs_landing", "type": "DatasetReference", "parameters": {"relativePath": "payments/transaction"}}]
+      },
+      {
+        "name": "Validate_Payments_Landing",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Copy_Payments_To_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.validationEndpoint", "body": {"domain": "payments", "entity": "transaction", "runId": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Publish_Payments_Ready",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Validate_Payments_Landing", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"topic": "property.transaction-events.v1", "event_type": "LANDING_READY", "run_id": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Run_Canonical_Merge",
+        "type": "WebActivity",
+        "dependsOn": [
+          {"activity": "Commit_HotelReservations_Watermark", "dependencyConditions": ["Succeeded"]},
+          {"activity": "Commit_GamingActivity_Watermark", "dependencyConditions": ["Succeeded"]},
+          {"activity": "Commit_RewardsActivity_Watermark", "dependencyConditions": ["Succeeded"]},
+          {"activity": "Publish_Payments_Ready", "dependencyConditions": ["Succeeded"]}
+        ],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"event_type": "RUN_CANONICAL_MERGE", "run_id": "@pipeline().RunId", "business_date": "@pipeline().parameters.businessDate"}}
+      },
+      {
+        "name": "Publish_Curated_Models",
+        "type": "WebActivity",
+        "dependsOn": [{"activity": "Run_Canonical_Merge", "dependencyConditions": ["Succeeded"]}],
+        "typeProperties": {"method": "POST", "url": "@pipeline().parameters.eventGatewayEndpoint", "body": {"event_type": "PUBLISH_CURATED", "run_id": "@pipeline().RunId"}}
+      },
+      {
+        "name": "Enterprise_Reconciliation",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [{"activity": "Publish_Curated_Models", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {"storedProcedureName": "audit.usp_enterprise_reconcile", "storedProcedureParameters": {"run_id": {"value": "@pipeline().RunId", "type": "String"}}}
+      },
+      {
+        "name": "CompleteEnterpriseRun",
+        "type": "SqlServerStoredProcedure",
+        "dependsOn": [{"activity": "Enterprise_Reconciliation", "dependencyConditions": ["Succeeded"]}],
+        "linkedServiceName": {"referenceName": "ls_sqlserver_dw", "type": "LinkedServiceReference"},
+        "typeProperties": {"storedProcedureName": "ctl.usp_end_enterprise_run", "storedProcedureParameters": {"run_id": {"value": "@pipeline().RunId", "type": "String"}, "status": {"value": "SUCCEEDED", "type": "String"}}}
+      }
+    ],
+    "annotations": ["portfolio", "synthetic", "db2", "ssis", "gcp", "pubsub", "cloud-migration"],
+    "folder": {"name": "portfolio/enterprise_migration"},
+    "concurrency": 4
+  }
+}
