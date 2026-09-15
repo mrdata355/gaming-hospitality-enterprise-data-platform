@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="HotelReservations_Incremental" DTS:PackageType="5" DTS:ProtectionLevel="0">
+  <DTS:Property DTS:Name="Description">Restartable DB2 hotel reservation incremental load into SQL Server staging and dimensional warehouse.</DTS:Property>
+  <DTS:Variables>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="PipelineRunId"><DTS:VariableValue DTS:DataType="8">00000000-0000-0000-0000-000000000000</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="LowWatermark"><DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="HighWatermark"><DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue></DTS:Variable>
+  </DTS:Variables>
+  <DTS:Executables>
+    <DTS:Executable DTS:ObjectName="01 Capture Watermark and Start Audit" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="02 DB2 Reservation Data Flow" DTS:ExecutableType="Microsoft.Pipeline" />
+    <DTS:Executable DTS:ObjectName="03 Validate and Quarantine" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="04 Merge Reservation Fact" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="05 Reconcile Counts and Revenue" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="06 Commit Watermark and Audit" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+  </DTS:Executables>
+  <DTS:DesignTimeProperties><![CDATA[{
+    "controlFlow": [
+      "01 Capture Watermark and Start Audit",
+      "02 DB2 Reservation Data Flow",
+      "03 Validate and Quarantine",
+      "04 Merge Reservation Fact",
+      "05 Reconcile Counts and Revenue",
+      "06 Commit Watermark and Audit"
+    ],
+    "errorPath": "all task failures -> ctl.pipeline_run FAILED; source range remains replayable"
+  }]]></DTS:DesignTimeProperties>
+</DTS:Executable>

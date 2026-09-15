@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="utf-8"?>
+<DTS:Executable xmlns:DTS="www.microsoft.com/SqlServer/Dts" DTS:ExecutableType="Microsoft.Package" DTS:ObjectName="GamingActivity_Incremental" DTS:PackageType="5" DTS:ProtectionLevel="0">
+  <DTS:Property DTS:Name="Description">DB2 gaming activity CDC bridge with staged validation, reconciliation and event publication handoff.</DTS:Property>
+  <DTS:Variables>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="PipelineRunId"><DTS:VariableValue DTS:DataType="8">00000000-0000-0000-0000-000000000000</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="LowWatermark"><DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue></DTS:Variable>
+    <DTS:Variable DTS:Namespace="User" DTS:ObjectName="HighWatermark"><DTS:VariableValue DTS:DataType="3">0</DTS:VariableValue></DTS:Variable>
+  </DTS:Variables>
+  <DTS:Executables>
+    <DTS:Executable DTS:ObjectName="01 Begin Batch" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="02 DB2 Gaming Data Flow" DTS:ExecutableType="Microsoft.Pipeline" />
+    <DTS:Executable DTS:ObjectName="03 Token and Domain Validation" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="04 Merge Gaming Sessions" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+    <DTS:Executable DTS:ObjectName="05 Publish Outbox Events" DTS:ExecutableType="Microsoft.ExecuteProcess" />
+    <DTS:Executable DTS:ObjectName="06 Reconcile Coin In and Event Count" DTS:ExecutableType="Microsoft.ExecuteSQLTask" />
+  </DTS:Executables>
+</DTS:Executable>
