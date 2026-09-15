@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gh:hotel:reservation:v1",
+  "title": "HotelReservationEventV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "event_ts", "reservation_id", "guest_token", "arrival_date", "departure_date", "room_type_code", "status", "channel"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "HOTEL_RESERVATION"},
+    "event_ts": {"type": "string", "format": "date-time"},
+    "schema_version": {"const": "1"},
+    "source_system": {"type": "string"},
+    "property_code": {"type": "string"},
+    "trace_id": {"type": "string", "format": "uuid"},
+    "reservation_id": {"type": "string"},
+    "guest_token": {"type": "string"},
+    "arrival_date": {"type": "string", "format": "date-time"},
+    "departure_date": {"type": "string", "format": "date-time"},
+    "room_type_code": {"type": "string"},
+    "status": {"enum": ["BOOKED", "CHECKED_IN", "CHECKED_OUT", "CANCELLED", "NO_SHOW"]},
+    "room_revenue": {"type": "number", "minimum": 0},
+    "channel": {"type": "string"}
+  }
+}

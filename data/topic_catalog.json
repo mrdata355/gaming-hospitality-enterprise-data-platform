@@ -1,0 +1,14 @@
+{
+  "topics": [
+    {"name": "gaming.slot-play-events.v1", "key": "session_id", "owner": "gaming-data", "retention": "7d", "schema": "contracts/slot_play_event.v1.schema.json"},
+    {"name": "gaming.table-play-events.v1", "key": "session_id", "owner": "gaming-data", "retention": "7d"},
+    {"name": "hotel.reservation-events.v1", "key": "reservation_id", "owner": "hotel-data", "retention": "14d", "schema": "contracts/hotel_reservation_event.v1.schema.json"},
+    {"name": "hotel.checkin-events.v1", "key": "reservation_id", "owner": "hotel-data", "retention": "14d"},
+    {"name": "guest.mobile-events.v1", "key": "anonymous_session_id", "owner": "digital-product", "retention": "3d"},
+    {"name": "rewards.earn-events.v1", "key": "guest_token", "owner": "loyalty-data", "retention": "14d", "schema": "contracts/reward_activity_event.v1.schema.json"},
+    {"name": "rewards.redemption-events.v1", "key": "guest_token", "owner": "loyalty-data", "retention": "14d"},
+    {"name": "marketing.offer-events.v1", "key": "guest_token", "owner": "marketing-data", "retention": "7d"},
+    {"name": "property.transaction-events.v1", "key": "transaction_id", "owner": "finance-data", "retention": "14d"},
+    {"name": "ops.pipeline-events.v1", "key": "pipeline_run_id", "owner": "data-platform", "retention": "30d"}
+  ]
+}

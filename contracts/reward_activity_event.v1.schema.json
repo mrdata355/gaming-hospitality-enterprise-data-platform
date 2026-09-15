@@ -1,0 +1,18 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gh:rewards:activity:v1",
+  "title": "RewardActivityEventV1",
+  "type": "object",
+  "required": ["event_id", "event_ts", "reward_event_id", "guest_token", "activity_type", "points_delta", "source_domain"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "REWARD_ACTIVITY"},
+    "event_ts": {"type": "string", "format": "date-time"},
+    "reward_event_id": {"type": "string"},
+    "guest_token": {"type": "string"},
+    "activity_type": {"enum": ["EARN", "REDEEM", "ADJUST"]},
+    "points_delta": {"type": "integer"},
+    "source_domain": {"enum": ["GAMING", "HOTEL", "DINING", "ENTERTAINMENT", "SPA", "RETAIL"]},
+    "monetary_value": {"type": "number"}
+  }
+}

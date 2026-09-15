@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "urn:gh:gaming:slot-play:v1",
+  "title": "SlotPlayEventV1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["event_id", "event_type", "event_ts", "schema_version", "source_system", "property_code", "trace_id", "session_id", "device_token", "coin_in", "payout"],
+  "properties": {
+    "event_id": {"type": "string", "format": "uuid"},
+    "event_type": {"const": "SLOT_PLAY"},
+    "event_ts": {"type": "string", "format": "date-time"},
+    "schema_version": {"const": "1"},
+    "source_system": {"type": "string", "minLength": 1},
+    "property_code": {"type": "string", "minLength": 1},
+    "trace_id": {"type": "string", "format": "uuid"},
+    "session_id": {"type": "string", "minLength": 1},
+    "device_token": {"type": "string", "minLength": 1},
+    "guest_token": {"type": ["string", "null"]},
+    "coin_in": {"type": "number", "minimum": 0},
+    "payout": {"type": "number", "minimum": 0},
+    "jackpot_amount": {"type": "number", "minimum": 0}
+  }
+}
