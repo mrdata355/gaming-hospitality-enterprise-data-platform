@@ -1,0 +1,29 @@
+version: 1
+zone: clean
+required_metadata: [event_id, business_key, property_code, source_system, source_updated_at, normalized_at]
+domains:
+  hotel:
+    reservation:
+      primary_key: reservation_id
+      required: [reservation_id, property_code, arrival_date, departure_date, status]
+      rules: [arrival_before_departure, rooms_nonnegative, revenue_nonnegative]
+  gaming:
+    slot_play:
+      primary_key: play_id
+      required: [play_id, event_id, machine_id, property_code, event_time]
+      rules: [coin_in_nonnegative, payout_nonnegative, event_not_future]
+  rewards:
+    activity:
+      primary_key: reward_event_id
+      required: [reward_event_id, guest_id, property_code, event_time]
+      rules: [points_numeric, value_nonnegative]
+  payments:
+    transaction:
+      primary_key: transaction_id
+      required: [transaction_id, property_code, business_time, amount, currency]
+      rules: [currency_supported, status_supported]
+  operations:
+    work_order:
+      primary_key: work_order_id
+      required: [work_order_id, property_code, zone_code, opened_at, status]
+      rules: [closed_after_opened]

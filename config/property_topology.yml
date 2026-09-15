@@ -1,0 +1,59 @@
+# Public property anchors + synthetic enterprise data topology.
+# Public addresses are sourced from The Venetian Resort public contact page.
+# Internal IDs, schemas, paths, topics, buckets, SLAs, and mappings are portfolio simulation only.
+portfolio_notice: "Synthetic production-style reference architecture; not private Venetian infrastructure."
+public_sources:
+  - https://www.venetianlasvegas.com/resort/contact.html
+  - https://www.venetianlasvegas.com/meetings
+  - https://www.venetianlasvegas.com/meetings/faqs.html
+
+properties:
+  - property_id: VENETIAN_MAIN
+    display_name: The Venetian Resort Hotel Casino
+    public_address: "3355 Las Vegas Blvd. South, Las Vegas, NV 89109"
+    synthetic_region_key: LAS_VENETIAN
+    domains: [hotel, casino, rewards, dining, retail, meetings, mobile, payments]
+  - property_id: PALAZZO
+    display_name: The Palazzo Resort Hotel Casino
+    public_address: "3325 S Las Vegas Blvd, Las Vegas, NV 89109"
+    synthetic_region_key: LAS_PALAZZO
+    domains: [hotel, casino, rewards, dining, retail, meetings, mobile, payments]
+
+campus_zones:
+  - {zone_id: VENETIAN_NORTH_TOWER, parent_property: VENETIAN_MAIN, zone_type: hotel_tower}
+  - {zone_id: VENETIAN_SOUTH_TOWER, parent_property: VENETIAN_MAIN, zone_type: hotel_tower}
+  - {zone_id: PALAZZO_TOWER, parent_property: PALAZZO, zone_type: hotel_tower}
+  - {zone_id: CONVENTION_CENTER, parent_property: VENETIAN_MAIN, zone_type: meetings}
+  - {zone_id: EXPO_HALL_A, parent_property: VENETIAN_MAIN, zone_type: expo}
+  - {zone_id: EXPO_HALL_B, parent_property: VENETIAN_MAIN, zone_type: expo}
+  - {zone_id: EXPO_HALL_C, parent_property: VENETIAN_MAIN, zone_type: expo}
+  - {zone_id: EXPO_HALL_D, parent_property: VENETIAN_MAIN, zone_type: expo}
+  - {zone_id: EXPO_HALL_G, parent_property: VENETIAN_MAIN, zone_type: expo}
+  - {zone_id: RESTAURANT_ROW, parent_property: VENETIAN_MAIN, zone_type: food_beverage}
+  - {zone_id: SPHERE_BRIDGE_ACCESS, parent_property: VENETIAN_MAIN, zone_type: pedestrian_access}
+
+synthetic_data_topology:
+  environments: [dev, qa, stage, prod]
+  sqlserver_schemas: [ctl, raw, stg, core, curated, mart, dq, audit]
+  db2_libraries: [HOSPITALITY, GAMING, LOYALTY, FINANCE, PROPERTY_OPS]
+  gcs_zones: [landing, raw, clean, merge, curated, quarantine, replay, checkpoints]
+  pubsub_domains: [guest, hotel, gaming, rewards, marketing, payments, property_ops, observability]
+  default_region: us-west1
+  default_timezone: America/Los_Angeles
+
+synthetic_paths:
+  raw: "gs://vh-portfolio-{env}-raw-{region}/{domain}/{entity}/business_date={yyyy-mm-dd}/hour={hh}/"
+  clean: "gs://vh-portfolio-{env}-clean-{region}/{domain}/{entity}/business_date={yyyy-mm-dd}/hour={hh}/"
+  merge: "gs://vh-portfolio-{env}-merge-{region}/{domain}/{entity}/business_date={yyyy-mm-dd}/"
+  curated: "gs://vh-portfolio-{env}-curated-{region}/{subject}/business_date={yyyy-mm-dd}/"
+  quarantine: "gs://vh-portfolio-{env}-quarantine-{region}/{domain}/{entity}/reason={reason}/business_date={yyyy-mm-dd}/"
+  replay: "gs://vh-portfolio-{env}-replay-{region}/{domain}/{entity}/replay_id={replay_id}/"
+  checkpoints: "gs://vh-portfolio-{env}-checkpoints-{region}/{pipeline}/{query}/"
+
+synthetic_schemas:
+  hotel: [reservation, checkin, room_inventory, folio]
+  gaming: [slot_play, table_play, machine_status, jackpot]
+  rewards: [earn, redemption, tier_change, offer_response]
+  payments: [transaction, settlement, chargeback]
+  operations: [work_order, incident, occupancy_sensor]
+  guest: [profile, identity_link, preference]

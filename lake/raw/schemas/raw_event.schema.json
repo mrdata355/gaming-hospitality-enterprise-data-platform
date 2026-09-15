@@ -1,0 +1,20 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Synthetic Raw Enterprise Event",
+  "type": "object",
+  "required": ["event_id", "event_type", "source_system", "property_code", "event_time", "schema_version", "payload"],
+  "properties": {
+    "event_id": {"type": "string", "minLength": 1},
+    "event_type": {"type": "string", "minLength": 1},
+    "source_system": {"type": "string", "minLength": 1},
+    "property_code": {"enum": ["VENETIAN_MAIN", "PALAZZO"]},
+    "event_time": {"type": "string", "format": "date-time"},
+    "schema_version": {"type": "string"},
+    "trace_id": {"type": ["string", "null"]},
+    "source_partition": {"type": ["integer", "null"]},
+    "source_offset": {"type": ["integer", "null"]},
+    "source_watermark": {"type": ["integer", "null"]},
+    "payload": {"type": "object"}
+  },
+  "additionalProperties": true
+}

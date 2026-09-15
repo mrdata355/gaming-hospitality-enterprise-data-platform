@@ -1,0 +1,13 @@
+version: 1
+strategy: deterministic_upsert
+match_keys:
+  hotel.reservation: [reservation_id]
+  gaming.slot_play: [play_id]
+  rewards.activity: [reward_event_id]
+  payments.transaction: [transaction_id]
+  operations.work_order: [work_order_id]
+order_by: [source_version_desc, source_updated_at_desc, event_id_desc]
+outcomes: [INSERTED, UPDATED, DUPLICATE_IGNORED, STALE_IGNORED, QUARANTINED]
+reconciliation:
+  equation: source_count = applied_count + duplicate_count + stale_count + quarantine_count
+  fail_on_unexplained_rows: true

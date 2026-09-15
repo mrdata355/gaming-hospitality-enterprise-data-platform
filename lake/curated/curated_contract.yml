@@ -1,0 +1,14 @@
+version: 1
+subjects:
+  guest_360:
+    grain: one row per enterprise_guest_id
+    measures: [lifetime_room_revenue, lifetime_coin_in, lifetime_net_win, lifetime_reward_value]
+  hotel_occupancy_daily:
+    grain: one row per property_code + stay_date
+    measures: [rooms_sold, rooms_available, occupancy_pct, room_revenue, adr]
+  gaming_performance_5min:
+    grain: one row per property_code + machine_id + five_minute_window
+    measures: [coin_in, payout, net_win, event_count, jackpot_amount]
+  executive_property_daily:
+    grain: one row per property_code + business_date
+    measures: [occupancy_pct, room_revenue, gaming_net_win, reward_redemption_value, pipeline_freshness_minutes]
